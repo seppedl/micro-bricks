@@ -136,10 +136,15 @@ class Paddle:
         self.draw()
 
     def hit(self, ball: Ball) -> bool:
-        """Check if the ball hits the paddle."""
-        return (
-            self.x < ball.x < self.x + self.width 
-            and self.y < ball.y < self.y + self.height)
+        """Check if the ball hits the paddle and adjust its position."""
+        if (
+            self.x <= ball.x <= self.x + self.width 
+            and self.y <= ball.y + ball.radius <= self.y + self.height
+        ):
+            # Adjust the ball's position to be just above the paddle
+            ball.y = self.y - ball.radius - 2
+            return True
+        return False
 
 
 class Ball:
@@ -163,11 +168,11 @@ class Ball:
         self.y = paddle.y - radius - 2  # Place the ball just above the paddle
 
     def reset_pos(self, paddle: Paddle):
-        """Reset ball position to the center of the screen.
+        """Reset ball position to the center of the paddle.
         Args:  Paddle: The paddle object to position the ball on.
         """
         self.x = SCREEN_HEIGHT // 2
-        self.y = SCREEN_WIDTH // 2
+        self.y = SCREEN_WIDTH // 2 - self.radius - 2
         self.x_speed = BALL_SPEED
         self.y_speed = -BALL_SPEED
 
@@ -181,7 +186,7 @@ class Ball:
             self.x = 0
             self.x_speed = -self.x_speed
         elif self.x > SCREEN_HEIGHT:
-            self.x = SCREEN_HEIGHT
+            self.x = SCREEN_HEIGHT - self.radius
             self.x_speed = -self.x_speed
 
         # Bounce off top screen edge
@@ -255,7 +260,7 @@ class BrickRow:
         """
         for i, brick in enumerate(self.bricks):
             if brick is not None:
-                if (brick.x < ball.x < brick.x + brick.width) and (brick.y < ball.y < brick.y + brick.height):
+                if (brick.x <= ball.x <= brick.x + brick.width) and (brick.y <= ball.y <= brick.y + brick.height):
                     # Remove the brick by setting it to None
                     self.bricks[i] = None
                     return True
@@ -299,40 +304,40 @@ def main_loop():
     global fbuf, buffer, buffer_width, buffer_height, joystick
     global render_frame
 
-    bricks = []
-    for row in range(ROWS):
-        if row == 0:
-            color = RED
-        elif row == 1:
-            color = YELLOW
-        else:
-            color = GREEN
-        bricks.append(
-            BrickRow(BRICK_WIDTH, 
-                     BRICK_HEIGHT, 
-                     BRICK_PADDING, 
-                     10 + row * (BRICK_HEIGHT + BRICK_PADDING), 
-                     color))
-    score = 0
-    lives = 3
-
-    paddle = Paddle()
-    ball = Ball(paddle, radius=5, color=WHITE)
-    # Create a list of small balls to represent lives
-    lives_balls = []
-    for i in range(0, lives):  
-        life_ball = Ball(paddle, radius=3, color=WHITE)
-        life_ball.x = 5 + (i - 1) * 7  
-        life_ball.y = 7
-        life_ball.x_speed = 0  
-        lives_balls.append(life_ball)
-
-    render_frame = False
     state = 0  # 0 = start screen, 1 = game, 2 = game over, 3 = game win
 
     try:
         while True:
-            if state == 0:  # Startup screen
+            if state == 0:  # Startup screen & init game state
+                bricks = []
+                for row in range(ROWS):
+                    if row == 0:
+                        color = RED
+                    elif row == 1:
+                        color = YELLOW
+                    else:
+                        color = GREEN
+                    bricks.append(
+                        BrickRow(BRICK_WIDTH, 
+                                BRICK_HEIGHT, 
+                                BRICK_PADDING, 
+                                10 + row * (BRICK_HEIGHT + BRICK_PADDING), 
+                                color))
+                score = 0
+                lives = 3
+
+                paddle = Paddle()
+                ball = Ball(paddle, radius=5, color=WHITE)
+                # Create a list of small balls to represent lives
+                lives_balls = []
+                for i in range(0, lives):  
+                    life_ball = Ball(paddle, radius=3, color=WHITE)
+                    life_ball.x = 5 + (i - 1) * 7  
+                    life_ball.y = 7
+                    life_ball.x_speed = 0  
+                    lives_balls.append(life_ball)
+
+                render_frame = False
                 splash_screen([0x060046, 0x056B54, 0x054A64, 0x064A46, 0x054A62, 0x054A52, 0x074B56])
                 
                 if joystick.button_a() == 0:  # Transition to game state when A is pressed
@@ -345,10 +350,10 @@ def main_loop():
                 if ball.update_pos():  # If ball is out of bounds, lose a life and reset ball position
                     lives -= 1
                     lives_balls.pop()
-                    ball.reset_pos(paddle)  # Reset ball position to the center of the screen
+                    ball.reset_pos(paddle)  # Reset ball position to the center of the paddle
 
                 if paddle.hit(ball):
-                    ball.y_speed = -ball.y_speed
+                    ball.y_speed = -abs(ball.y_speed)
                 for row in bricks:
                     if row.hit(ball):
                         ball.y_speed = -ball.y_speed
