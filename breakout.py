@@ -1,10 +1,9 @@
 """
-Threaded bouncing boxes with frame buffer
+Threaded breakout game with frame buffer
 
 Uses a single shot function for second core SPI handler.
 This cleans itself when the function exits removing the
 need for a garbage collection call.
-
 """
 from gc import collect
 collect()
@@ -18,15 +17,11 @@ from random import random, seed, randint
 from utime import sleep_us, ticks_cpu, ticks_us
 import _thread
 import st7789 as st7789
-from joystick import Joystick
+from helpers import Joystick, color565
 
 # ============================
 # Helper Functions
 # ============================
-def color565(r, g, b):
-    """Convert RGB888 to RGB565."""
-    return (((g & 0b00011100) << 3) + ((r & 0b11111000) >> 3) << 8) + (b & 0b11111000) + ((g & 0b11100000) >> 5)
-
 
 RED = color565(0, 0, 255)
 GREEN = color565(0, 255, 0)
@@ -45,9 +40,9 @@ def clear_display():
 # ============================
 # Constants and Configuration
 # ============================
-SCREEN_WIDTH = 135
-SCREEN_HEIGHT = 240
-SCREEN_ROTATION = 1
+SCREEN_HEIGHT = 135
+SCREEN_WIDTH = 240
+SCREEN_ROTATION = 1 # Landscape mode
 
 PADDLE_WIDTH = 70
 PADDLE_HEIGHT = 10
@@ -66,6 +61,14 @@ SPLASH_WIDTH = 8
 SPLASH_HEIGHT = 5
 SPLASH_PADDING = 2
 
+# Game states
+START_SCREEN = 0
+PLAYING = 1
+GAME_OVER = 2
+GAME_WIN = 3
+GAME_NEXT_LEVEL = 4
+
+DEBOUNCE = 300_000
 
 # ============================
 # set up SPI and display
@@ -80,8 +83,8 @@ spi = SPI(1,
 
 display = st7789.ST7789(
     spi,
-    SCREEN_WIDTH,
     SCREEN_HEIGHT,
+    SCREEN_WIDTH,
     reset=Pin(12, Pin.OUT),
     cs=Pin(9, Pin.OUT),
     dc=Pin(8, Pin.OUT),
@@ -90,9 +93,8 @@ display = st7789.ST7789(
 
 
 # FrameBuffer needs 2 bytes for every RGB565 pixel
-buffer_width = SCREEN_HEIGHT
-buffer_height = SCREEN_WIDTH + 1
-buffer_height = 136
+buffer_width = SCREEN_WIDTH
+buffer_height = SCREEN_HEIGHT + 1
 buffer = bytearray(buffer_width * buffer_height * 2)
 fbuf = framebuf.FrameBuffer(buffer, buffer_width, buffer_height, framebuf.RGB565)
 
@@ -104,8 +106,8 @@ render_frame = False
 
 class Paddle:
     def __init__(self):
-        self.x = (SCREEN_HEIGHT - PADDLE_WIDTH) // 2
-        self.y = SCREEN_WIDTH - PADDLE_HEIGHT - 5
+        self.x = (SCREEN_WIDTH - PADDLE_WIDTH) // 2
+        self.y = SCREEN_HEIGHT - PADDLE_HEIGHT - 5
         self.width = PADDLE_WIDTH
         self.height = PADDLE_HEIGHT
         self.speed = PADDLE_SPEED
@@ -118,8 +120,8 @@ class Paddle:
         self.x += self.speed * direction
         if self.x < 0:
             self.x = 0
-        elif self.x > SCREEN_HEIGHT - self.width:
-            self.x = SCREEN_HEIGHT - self.width
+        elif self.x > SCREEN_WIDTH - self.width:
+            self.x = SCREEN_WIDTH - self.width
     
     def draw(self):
         """Draw paddle."""
@@ -171,8 +173,8 @@ class Ball:
         """Reset ball position to the center of the paddle.
         Args:  Paddle: The paddle object to position the ball on.
         """
-        self.x = SCREEN_HEIGHT // 2
-        self.y = SCREEN_WIDTH // 2 - self.radius - 2
+        self.x = SCREEN_WIDTH // 2
+        self.y = SCREEN_HEIGHT // 2 - self.radius - 2
         self.x_speed = BALL_SPEED
         self.y_speed = -BALL_SPEED
 
@@ -185,8 +187,8 @@ class Ball:
         if self.x < 0:
             self.x = 0
             self.x_speed = -self.x_speed
-        elif self.x > SCREEN_HEIGHT:
-            self.x = SCREEN_HEIGHT - self.radius
+        elif self.x > SCREEN_WIDTH:
+            self.x = SCREEN_WIDTH - self.radius
             self.x_speed = -self.x_speed
 
         # Bounce off top screen edge
@@ -195,8 +197,8 @@ class Ball:
             self.y_speed = -self.y_speed
 
         # Drop through bottom screen edge & return True to indicate we lose a life
-        if self.y > SCREEN_WIDTH:
-            self.y = SCREEN_WIDTH
+        if self.y > SCREEN_HEIGHT:
+            self.y = SCREEN_HEIGHT
             self.y_speed = -self.y_speed
             return True
 
@@ -214,7 +216,8 @@ class Brick:
                y (int): y-coordinate of the brick.  
                width (int): width of the brick.  
                height (int): height of the brick.  
-               color (int): color of the brick."""
+               color (int): color of the brick.
+        """
         self.x = x
         self.y = y
         self.width = width
@@ -247,6 +250,7 @@ class BrickRow:
         self.brick_y = [offset_top] * BRICKS_PER_ROW
 
     def draw(self):
+        """Draw all bricks in the row."""
         global fbuf
         for brick in self.bricks:
             if brick is not None:
@@ -266,10 +270,11 @@ class BrickRow:
                     return True
         return False
 
-def splash_screen(data_rows: list[int]):
+def splash_screen(data_rows: list[int], text: list[str]):
     """
     Display a splash screen using the bits in the data_rows.
     Args:  data_rows (list[int]): List of hex values to display as blocks.
+           text (list[str]): List of strings to display as text.
     """
     global fbuf, buffer, buffer_width, buffer_height, joystick, render_frame
     fbuf.fill(BLACK)
@@ -278,21 +283,21 @@ def splash_screen(data_rows: list[int]):
     start_y = 20
 
     for row_index, hex_value in enumerate(data_rows):
-        binary = bin(hex_value)[2:]  # Convert to binary
-        binary = '{:0>22}'.format(binary)  # Pad to 22 columns
         if 0 <= row_index <= 1:
             color = RED
         elif 2 <= row_index <= 4:
             color = YELLOW 
         else:
             color = GREEN
-        for bit_index, bit in enumerate(binary):
-            if bit == '1':  # Only draw a block for '1'
+
+        for bit_index in range(22):  # Iterate over 22 bits
+            if (hex_value >> (21 - bit_index)) & 1:  
                 x = start_x + bit_index * (SPLASH_WIDTH + SPLASH_PADDING)
                 y = start_y + row_index * (SPLASH_WIDTH + SPLASH_PADDING)
                 fbuf.fill_rect(x, y, SPLASH_WIDTH, SPLASH_HEIGHT, color)
-    fbuf.text("Press A to start", 5, 100, WHITE) 
-    fbuf.text("Press B to exit", 5, 120, WHITE) 
+
+    fbuf.text(text[0], 5, 100, WHITE)
+    fbuf.text(text[1], 5, 120, WHITE) 
 
     # Wait for the frame to be rendered & update the display
     while render_frame:
@@ -300,52 +305,71 @@ def splash_screen(data_rows: list[int]):
     display.blit_buffer(buffer, 0, 0, buffer_width, buffer_height)
 
 
+def create_bricks() -> list[BrickRow]:
+    bricks = []
+    for row in range(ROWS):
+        if row == 0:
+            color = RED
+        elif row == 1:
+            color = YELLOW
+        else:
+            color = GREEN
+        bricks.append(
+            BrickRow(BRICK_WIDTH, 
+                    BRICK_HEIGHT, 
+                    BRICK_PADDING, 
+                    10 + row * (BRICK_HEIGHT + BRICK_PADDING), 
+                    color))
+    return bricks
+
+
+def create_lives(lives: int) -> list[Ball]:
+    """
+    Create a list of small balls to represent lives
+    Args:  lives (int): Number of lives left
+    """
+    lives_balls = []
+    for i in range(0, lives):
+        life_ball = Ball(Paddle(), radius=3, color=WHITE)
+        life_ball.x = 5 + (i - 1) * 7
+        life_ball.y = 7
+        life_ball.x_speed = 0
+        lives_balls.append(life_ball)
+    return lives_balls
+
+
 def main_loop():
     global fbuf, buffer, buffer_width, buffer_height, joystick
     global render_frame
 
-    state = 0  # 0 = start screen, 1 = game, 2 = game over, 3 = game win
+    game_state = START_SCREEN  # Start at the splash screen
+    paddle = Paddle()
 
     try:
         while True:
-            if state == 0:  # Startup screen & init game state
-                bricks = []
-                for row in range(ROWS):
-                    if row == 0:
-                        color = RED
-                    elif row == 1:
-                        color = YELLOW
-                    else:
-                        color = GREEN
-                    bricks.append(
-                        BrickRow(BRICK_WIDTH, 
-                                BRICK_HEIGHT, 
-                                BRICK_PADDING, 
-                                10 + row * (BRICK_HEIGHT + BRICK_PADDING), 
-                                color))
+            if game_state == START_SCREEN:  # Startup screen & init game state
+                # Generate bricks
+                bricks = create_bricks()
+                lives = 3  
+                lives_balls = create_lives(lives)
                 score = 0
-                lives = 3
 
-                paddle = Paddle()
+                # Initialize paddle and ball
                 ball = Ball(paddle, radius=5, color=WHITE)
-                # Create a list of small balls to represent lives
-                lives_balls = []
-                for i in range(0, lives):  
-                    life_ball = Ball(paddle, radius=3, color=WHITE)
-                    life_ball.x = 5 + (i - 1) * 7  
-                    life_ball.y = 7
-                    life_ball.x_speed = 0  
-                    lives_balls.append(life_ball)
+                paddle.width = PADDLE_WIDTH
+                paddle.height = PADDLE_HEIGHT
 
                 render_frame = False
-                splash_screen([0x060046, 0x056B54, 0x054A64, 0x064A46, 0x054A62, 0x054A52, 0x074B56])
-                
-                if joystick.button_a() == 0:  # Transition to game state when A is pressed
-                    state = 1
-                    lives = 3
-                    score = 0
+                splash_screen(
+                    [0x060046, 0x056B54, 0x054A64, 0x064A46, 0x054A62, 0x054A52, 0x074B56],
+                    ["Press A to start", "Press B to exit"]
+                )
 
-            elif state == 1 and lives > 0 and score < 28:  # Game state
+                if joystick.button_a() == 0:  # Transition to PLAYING state when A is pressed
+                    game_state = PLAYING
+                    sleep_us(DEBOUNCE)  # Debounce delay
+
+            elif game_state == PLAYING and lives > 0 and score < 28:  # Game loop
                 paddle.update()
                 if ball.update_pos():  # If ball is out of bounds, lose a life and reset ball position
                     lives -= 1
@@ -372,30 +396,45 @@ def main_loop():
                 # Start SPI handler on core 1
                 spi_thread = _thread.start_new_thread(render_thread, ())
 
-            if state == 1 and (lives == 0 or score == 28):  # Game over or win:
-                if lives > 0: 
-                    state= 3 # Winning state
+            elif game_state == PLAYING and (lives == 0 or score == 28):  # Game over or win
+                if lives > 0:
+                    game_state = GAME_NEXT_LEVEL  # Transition to next level
                 else:
-                    state = 2 # Losing state
-            if state == 2:  # Game over screen
-                splash_screen([0x0276DC, 0x025490, 0x025494, 0x0256DC, 0x025298, 0x025294, 0x0376D4])
+                    game_state = GAME_OVER  # Losing state
 
-            if state == 3:  # Game win screen
-                splash_screen([0x04548, 0x04548, 0x04568, 0x05578, 0x05558, 0x05548, 0x03948])   
+            if game_state == GAME_OVER:  # Game over screen
+                splash_screen(
+                    [0x0276DC, 0x025490, 0x025494, 0x0256DC, 0x025298, 0x025294, 0x0376D4],
+                    ["Press A to restart", "Press B to exit"]
+                )
+                if joystick.button_a() == 0:  # Restart game when A is pressed
+                    game_state = START_SCREEN
+                    sleep_us(DEBOUNCE) 
 
-            if state != 1 and joystick.button_a() == 0:  # Transition to start state when A is pressed
-                state = 0
-                sleep_us(1_000_000)  # Debounce delay
+            if game_state == GAME_NEXT_LEVEL:  # Next level screen
+                splash_screen(
+                    [0x04548, 0x04548, 0x04568, 0x05578, 0x05558, 0x05548, 0x03948],
+                    ["Press A for next level", "Press B to exit"]
+                )
+                if joystick.button_a() == 0:  # Start next level when A is pressed
+                    # Reinitialize bricks and ball for the next level
+                    bricks = create_bricks()
+                    ball.reset_pos(paddle)
+                    paddle.width = max(PADDLE_WIDTH - 10, PADDLE_WIDTH // 2)  # Decrease paddle size
+                    paddle.height = PADDLE_HEIGHT
+                    game_state = PLAYING
+                    sleep_us(DEBOUNCE)
 
             if joystick.button_b() == 0:  # Exit game when B is pressed
-                break 
+                break
     except KeyboardInterrupt:
         pass
 
 
 def render_thread():
-    global fbuf, buffer, buffer_width, buffer_height, render_frame, spi
-    global display, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_ROTATION
+    """"Threaded function to handle SPI rendering on a separate core."""
+    global fbuf, buffer, buffer_width, buffer_height, render_frame
+    global display, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_ROTATION
 
     display.blit_buffer(buffer, 0, 0, buffer_width, buffer_height)
     fbuf.fill(0)
