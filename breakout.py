@@ -162,7 +162,7 @@ class Ball:
         self.radius = radius
         self.color = color
         self.reset_pos(paddle)
-        self.x_speed = BALL_SPEED
+        self.x_speed = BALL_SPEED if randint(0, 1) == 0 else -BALL_SPEED
         self.y_speed = -BALL_SPEED
 
         # Position the ball in the middle of the paddle
@@ -379,8 +379,9 @@ def main_loop():
 
     game_state = START_SCREEN  # Start at the splash screen
     paddle = Paddle()
-    high_score =High_score()
+    high_score = High_score()
     level = 1
+    ball_stuck = True  # Ball starts stuck to the paddle
 
     try:
         while True:
@@ -392,6 +393,7 @@ def main_loop():
                 score = 0
                 current_score = 0
                 level = 1
+                ball_stuck = True  # Reset ball to be stuck to the paddle
                 # Initialize paddle and ball
                 ball = Ball(paddle, radius=5, color=WHITE)
                 paddle.width = PADDLE_WIDTH
@@ -410,10 +412,23 @@ def main_loop():
 
             elif game_state == PLAYING and lives > 0 and score < 28:  # Game loop
                 paddle.update()
-                if ball.update_pos():  # If ball is out of bounds, lose a life and reset ball position
-                    lives -= 1
-                    lives_balls.pop()
-                    ball.reset_pos(paddle)  # Reset ball position to the center of the paddle
+                if ball_stuck:
+                    # Keep the ball stuck to the paddle
+                    ball.x = paddle.x + (paddle.width // 2)
+                    ball.y = paddle.y - ball.radius - 2
+                    fbuf.text("Press A to launch!", 50, SCREEN_HEIGHT // 2 + 5, WHITE)
+                    # Launch the ball when "A" is pressed
+                    if joystick.button_a() == 0:
+                        ball_stuck = False
+                        ball.y_speed = -BALL_SPEED
+                        ball.x_speed = BALL_SPEED if randint(0, 1) == 0 else -BALL_SPEED
+                        # sleep_us(DEBOUNCE)  # Debounce delay
+                else:
+                    if ball.update_pos():  # If ball is out of bounds, lose a life and reset ball position
+                        lives -= 1
+                        lives_balls.pop()
+                        ball.reset_pos(paddle)  # Reset ball position to the center of the paddle
+                        ball_stuck = True  # Ball is stuck again
 
                 if paddle.hit(ball):
                     ball.y_speed = -abs(ball.y_speed)
@@ -455,6 +470,7 @@ def main_loop():
 
             if game_state == GAME_NEXT_LEVEL:  # Next level screen
                 current_score += score
+                score = 0
                 high_score.update_high_score(current_score)
                 splash_screen(
                     [0x04548, 0x04548, 0x04568, 0x05578, 0x05558, 0x05548, 0x03948],
@@ -471,6 +487,7 @@ def main_loop():
                     lives += 1
                     lives_balls = create_lives(lives)
                     score = 0
+                    ball_stuck = True  # Ball is stuck again
                     sleep_us(DEBOUNCE)  # Debounce delay
             
             if joystick.button_b() == 0:  # Exit game when B is pressed
