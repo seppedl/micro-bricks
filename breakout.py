@@ -270,7 +270,42 @@ class BrickRow:
                     return True
         return False
 
-def splash_screen(data_rows: list[int], text: list[str]):
+
+class High_score:
+    def __init__(self):
+        self.high_score = 0
+        self._load_high_score()
+
+    def _load_high_score(self):
+        """
+        Load the high score from a file.
+        Returns: int: The high score.
+        """
+        try: 
+            with open("high_score.txt", "r") as file: 
+                self.high_score = int(file.read())
+        except OSError:  
+            self.high_score = 0 
+        return self.high_score
+
+    def _save_high_score(self):
+        """
+        Save the high score to a file.
+        """
+        with open("high_score.txt", "w") as file:
+            file.write(str(self.high_score))
+
+    def update_high_score(self, current_score: int):
+        """
+        Update the high score if the current score is higher.
+        Args:  score (int): The current score.
+        """
+        if current_score > self.high_score:
+            self.high_score = current_score
+            self._save_high_score()
+
+
+def splash_screen(data_rows: list[int], text: list[str], high_score: High_score):
     """
     Display a splash screen using the bits in the data_rows.
     Args:  data_rows (list[int]): List of hex values to display as blocks.
@@ -295,7 +330,7 @@ def splash_screen(data_rows: list[int], text: list[str]):
                 x = start_x + bit_index * (SPLASH_WIDTH + SPLASH_PADDING)
                 y = start_y + row_index * (SPLASH_WIDTH + SPLASH_PADDING)
                 fbuf.fill_rect(x, y, SPLASH_WIDTH, SPLASH_HEIGHT, color)
-
+    fbuf.text("High: " + str(high_score.high_score), 160, 120, WHITE)
     fbuf.text(text[0], 5, 100, WHITE)
     fbuf.text(text[1], 5, 120, WHITE) 
 
@@ -344,6 +379,8 @@ def main_loop():
 
     game_state = START_SCREEN  # Start at the splash screen
     paddle = Paddle()
+    high_score =High_score()
+    level = 1
 
     try:
         while True:
@@ -353,7 +390,8 @@ def main_loop():
                 lives = 3  
                 lives_balls = create_lives(lives)
                 score = 0
-
+                current_score = 0
+                level = 1
                 # Initialize paddle and ball
                 ball = Ball(paddle, radius=5, color=WHITE)
                 paddle.width = PADDLE_WIDTH
@@ -362,7 +400,8 @@ def main_loop():
                 render_frame = False
                 splash_screen(
                     [0x060046, 0x056B54, 0x054A64, 0x064A46, 0x054A62, 0x054A52, 0x074B56],
-                    ["Press A to start", "Press B to exit"]
+                    ["Press A to start", "Press B to exit"], 
+                    high_score
                 )
 
                 if joystick.button_a() == 0:  # Transition to PLAYING state when A is pressed
@@ -397,24 +436,30 @@ def main_loop():
                 spi_thread = _thread.start_new_thread(render_thread, ())
 
             elif game_state == PLAYING and (lives == 0 or score == 28):  # Game over or win
-                if lives > 0:
-                    game_state = GAME_NEXT_LEVEL  # Transition to next level
-                else:
+                if lives == 0:
                     game_state = GAME_OVER  # Losing state
+                elif score == 28:
+                    level += 1
+                    game_state = GAME_NEXT_LEVEL  # Transition to next level
 
             if game_state == GAME_OVER:  # Game over screen
+                high_score.update_high_score(current_score)
                 splash_screen(
                     [0x0276DC, 0x025490, 0x025494, 0x0256DC, 0x025298, 0x025294, 0x0376D4],
-                    ["Press A to restart", "Press B to exit"]
+                    ["Press A to restart", "Press B to exit"],
+                    high_score
                 )
                 if joystick.button_a() == 0:  # Restart game when A is pressed
                     game_state = START_SCREEN
                     sleep_us(DEBOUNCE) 
 
             if game_state == GAME_NEXT_LEVEL:  # Next level screen
+                current_score += score
+                high_score.update_high_score(current_score)
                 splash_screen(
                     [0x04548, 0x04548, 0x04568, 0x05578, 0x05558, 0x05548, 0x03948],
-                    ["Press A for next level", "Press B to exit"]
+                    ["Press A for next level: " + str(level),  "Press B to exit"],
+                    high_score
                 )
                 if joystick.button_a() == 0:  # Start next level when A is pressed
                     # Reinitialize bricks and ball for the next level
@@ -423,8 +468,11 @@ def main_loop():
                     paddle.width = max(PADDLE_WIDTH - 10, PADDLE_WIDTH // 2)  # Decrease paddle size
                     paddle.height = PADDLE_HEIGHT
                     game_state = PLAYING
-                    sleep_us(DEBOUNCE)
-
+                    lives += 1
+                    lives_balls = create_lives(lives)
+                    score = 0
+                    sleep_us(DEBOUNCE)  # Debounce delay
+            
             if joystick.button_b() == 0:  # Exit game when B is pressed
                 break
     except KeyboardInterrupt:

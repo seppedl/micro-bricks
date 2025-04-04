@@ -1,7 +1,7 @@
 # Program Documentation
 
 ## Overview
-This program is a simple game implemented in MicroPython for the Raspberry Pi Pico with a Pico-LCD-1.14 display. The game involves controlling a paddle to acontrol a ball to break a brick wall and score points. The program includes a splash screen, game over screen, and a main game loop.
+This program is a simple game implemented in MicroPython for the Raspberry Pi Pico with a Pico-LCD-1.14 display. The game involves controlling a paddle to control a ball to break a brick wall and score points. The program includes a splash screen, game over screen, and a main game loop.
 
 ## Framebuffer
 The program uses a framebuffer to draw the game graphics. The framebuffer is a 2D array that represents the pixels on the display. The program uses the micropyhton `framebuf` module to create and manipulate the framebuffer. The framebuffer is then copied to the display using the `blit` method.
