@@ -68,7 +68,7 @@ DEBOUNCE = 300_000
 # ============================
 try:
     DISABLE_B = 0
-    with open("env", "r") as file:
+    with open(".env", "r") as file:
         for line in file:
             key, value = line.strip().split("=")
             if key == "DISABLE_B":
@@ -152,9 +152,8 @@ class Paddle:
         """Draw paddle."""
         screen.fbuf.fill_rect(self.x, self.y, self.width, self.height, PADDLE_COLOR)
 
-    def update(self, screen: Screen):
+    def update(self, screen: Screen, joystick: Joystick):
         """Update paddle position."""
-        global joystick
         if joystick.joy_left() == 0:
             self.move(-1)
         elif joystick.joy_right() == 0:
@@ -431,7 +430,7 @@ def main_loop(screen, joystick):
                     sleep_us(DEBOUNCE)  # Debounce delay
 
             elif game_state == PLAYING and lives > 0 and score < 28:  # Game loop
-                paddle.update(screen) 
+                paddle.update(screen, joystick) 
                 if ball_stuck:
                     # Keep the ball stuck to the paddle
                     ball.x = paddle.x + (paddle.width // 2)
