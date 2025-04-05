@@ -1,38 +1,20 @@
 """
 Threaded breakout game with frame buffer
 
-Uses a single shot function for second core SPI handler.
-This cleans itself when the function exits removing the
-need for a garbage collection call.
+Author: Seppe De Loore
 """
-from gc import collect
-collect()
 
-# import libraries
-import math
-import array
-from machine import Pin, SPI
-import framebuf
-from random import random, seed, randint
-from utime import sleep_us, ticks_cpu, ticks_us
+from random import randint
+from utime import sleep_us
+from screen import Screen, RED, YELLOW, GREEN, WHITE
 import _thread
-import st7789 as st7789
-from helpers import Joystick, color565
 
-# ============================
-# Helper Functions
-# ============================
-
-RED = color565(0, 0, 255)
-GREEN = color565(0, 255, 0)
-YELLOW = color565(0, 255, 255)
-BLACK = color565(0, 0, 0)
-WHITE = color565(255, 255, 255)
-
+from joystick import Joystick
 
 # ============================
 # Constants and Configuration
 # ============================
+
 SCREEN_HEIGHT = 135
 SCREEN_WIDTH = 240
 SCREEN_ROTATION = 1 # Landscape mode
@@ -68,7 +50,7 @@ DEBOUNCE = 300_000
 # ============================
 try:
     DISABLE_B = 0
-    with open("env", "r") as file:
+    with open(".env", "r") as file:
         for line in file:
             key, value = line.strip().split("=")
             if key == "DISABLE_B":
@@ -80,51 +62,6 @@ except:
 # ============================
 # CLASSES
 # ============================
-
-class Screen:
-    def __init__(self, width: int, height: int, rotation: int):
-        self.spi: SPI = SPI(1,
-            baudrate=31250000,
-            polarity=1,
-            phase=1,
-            bits=8,
-            firstbit=SPI.MSB,
-            sck=Pin(10),
-            mosi=Pin(11))
-        self.width: int = width 
-        self.height: int = height
-        self.rotation: int = rotation
-        self.display = st7789.ST7789(
-            self.spi,
-            self.height,
-            self.width,
-            reset=Pin(12, Pin.OUT),
-            cs=Pin(9, Pin.OUT),
-            dc=Pin(8, Pin.OUT),
-            backlight=Pin(13, Pin.OUT),
-            rotation=self.rotation)
-        # FrameBuffer needs 2 bytes for every RGB565 pixel
-        self.buffer_width = self.width
-        self.buffer_height = self.height + 1
-        self.buffer = bytearray(self.buffer_width * self.buffer_height * 2)
-        self.fbuf: framebuf.FrameBuffer = framebuf.FrameBuffer(self.buffer, self.buffer_width, self.buffer_height, framebuf.RGB565)
-        self.render_frame = False
-    
-    def refresh(self):
-        self.display.blit_buffer(self.buffer, 0, 0, self.buffer_width, self.buffer_height)
-
-    def clear(self, refresh: bool = True):
-        self.fbuf.fill(BLACK)
-        if refresh:
-            self.refresh()
-
-    def render_thread(self):
-        """Threaded function to handle SPI rendering on a separate core."""
-        self.display.blit_buffer(self.buffer, 0, 0, self.buffer_width, self.buffer_height)
-        self.fbuf.fill(BLACK)
-        self.render_frame = False
-        # thread will exit and self clean removing need for garbage collection
-
 
 class Paddle:
     def __init__(self, screen: Screen):
@@ -152,9 +89,8 @@ class Paddle:
         """Draw paddle."""
         screen.fbuf.fill_rect(self.x, self.y, self.width, self.height, PADDLE_COLOR)
 
-    def update(self, screen: Screen):
+    def update(self, screen: Screen, joystick: Joystick):
         """Update paddle position."""
-        global joystick
         if joystick.joy_left() == 0:
             self.move(-1)
         elif joystick.joy_right() == 0:
@@ -431,7 +367,7 @@ def main_loop(screen, joystick):
                     sleep_us(DEBOUNCE)  # Debounce delay
 
             elif game_state == PLAYING and lives > 0 and score < 28:  # Game loop
-                paddle.update(screen) 
+                paddle.update(screen, joystick) 
                 if ball_stuck:
                     # Keep the ball stuck to the paddle
                     ball.x = paddle.x + (paddle.width // 2)
