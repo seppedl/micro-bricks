@@ -20,7 +20,7 @@ This is a simple Breakout game implemented in MicroPython for the Raspberry Pi P
 3. Clone or download this repository to your local machine.
 4. Open the Thonny IDE and connect to your Raspberry Pi Pico.
 5. Copy the contents of the repository to the Pico's file system. You can do this by dragging and dropping the files from your local machine to the Thonny file explorer.
-6. Once the files are copied, reset the Pico to start the game.
+6. Once the files are copied, reset the Pico to start the game (main.py will run automatically and start breakout.py).
 
 ## .env file
 In the .env file the user can control the behaviour of the joystick B-button.
