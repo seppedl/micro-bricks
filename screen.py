@@ -2,7 +2,7 @@ from machine import Pin, SPI
 import _thread
 from st7789 import ST7789
 from framebuf import FrameBuffer, RGB565
-
+import gc
 
 
 def color565(red: int, green: int, blue: int) -> int:
@@ -55,6 +55,8 @@ class Screen:
         self.display.blit_buffer(self.buffer, 0, 0, self.buffer_width, self.buffer_height)
 
     def clear(self, refresh: bool = True):
+        if self.fbuf is None:
+            return
         self.fbuf.fill(BLACK)
         if refresh:
             self.refresh()
@@ -65,3 +67,10 @@ class Screen:
         self.fbuf.fill(BLACK)
         self.render_frame = False
         # thread will exit and self clean removing need for garbage collection
+
+    def cleanup(self):
+        """Free resources used by the framebuffer and SPI."""
+        self.buffer = None
+        self.fbuf = None
+        self.spi.deinit()
+        gc.collect()
