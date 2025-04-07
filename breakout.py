@@ -218,6 +218,7 @@ def main_loop(screen, joystick):
 
             if game_state == GAME_OVER:  # Game over screen
                 current_score += score
+                score = 0
                 high_score.update_high_score(current_score)
                 splash_screen(
                     screen,
